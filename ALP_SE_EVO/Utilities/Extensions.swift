@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CoreImage
 
 // MARK: - Date Extensions
 
@@ -202,3 +203,23 @@ struct Logger {
 }
 
 typealias Log = Logger
+
+// MARK: - QR Code Generation
+
+extension String {
+    func generateQRCode() -> UIImage? {
+        let data = self.data(using: .ascii)
+        if let filter = CIFilter(name: "CIQRCodeGenerator") {
+            filter.setValue(data, forKey: "inputMessage")
+            filter.setValue("M", forKey: "inputCorrectionLevel")
+            let transform = CGAffineTransform(scaleX: 10, y: 10)
+            if let outputImage = filter.outputImage?.transformed(by: transform) {
+                let context = CIContext()
+                if let cgImage = context.createCGImage(outputImage, from: outputImage.extent) {
+                    return UIImage(cgImage: cgImage)
+                }
+            }
+        }
+        return nil
+    }
+}

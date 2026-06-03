@@ -454,21 +454,26 @@ struct QRCodeDisplayView: View {
                     .font(.headline)
                     .padding(.top)
                 
-                // QR Code placeholder (in real app, use a QR code library)
                 VStack(spacing: 12) {
-                    Text("[ QR CODE PLACEHOLDER ]")
-                        .font(.headline)
-                        .foregroundColor(.black)
-                        .multilineTextAlignment(.center)
+                    if let qrImage = ticket.encryptedData.generateQRCode() {
+                        Image(uiImage: qrImage)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 200, height: 200)
+                    } else {
+                        Text("Error generating QR code")
+                            .foregroundColor(.red)
+                    }
                     
                     Text(ticket.id)
                         .font(.caption)
+                        .foregroundColor(.black)
                         .monospaced()
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
                 .background(Color.white)
-                .border(Color.black)
                 
                 Text("Please show this QR code to the staff")
                     .font(.caption)
