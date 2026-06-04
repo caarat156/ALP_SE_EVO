@@ -47,6 +47,7 @@ struct VendorMainView: View {
 
 struct VendorCatalogView: View {
     @ObservedObject var viewModel: VendorViewModel
+    @EnvironmentObject var authManager: AuthManager
     @State private var showAddItem = false
     
     var body: some View {
@@ -92,6 +93,7 @@ struct VendorCatalogView: View {
             .navigationTitle("Catalog")
             .sheet(isPresented: $showAddItem) {
                 AddCatalogItemView(viewModel: viewModel)
+                    .environmentObject(authManager)
             }
         }
     }

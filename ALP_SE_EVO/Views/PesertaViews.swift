@@ -194,7 +194,7 @@ struct AvailableEventsView: View {
     
     private func registerForEvent(_ event: Event) {
         guard let userId = authManager.currentUser?.id else { return }
-        viewModel.registerEvent(pesertaId: userId, eventId: event.id, eventTitle: event.title) { success, _ in
+        viewModel.registerEvent(pesertaId: userId, eventId: event.id) { success, _ in
             if success {
                 dismiss()
             }
@@ -361,9 +361,9 @@ struct PesertaTicketsView: View {
                         .foregroundColor(.gray)
                 } else {
                     ForEach(viewModel.tickets) { ticket in
-                        NavigationLink(destination: TicketDetailView(ticket: ticket, viewModel: viewModel)) {
+                        NavigationLink(destination: TicketDetailView(ticket: ticket)) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Event: \(ticket.eventTitle)")
+                                Text("Event: \(ticket.eventId)")
                                     .font(.headline)
                                 Text("Status: \(ticket.status.rawValue.capitalized)")
                                     .font(.caption)
@@ -383,9 +383,7 @@ struct PesertaTicketsView: View {
 
 struct TicketDetailView: View {
     let ticket: Ticket
-    @ObservedObject var viewModel: PesertaViewModel
     @State private var showQRCode = false
-    @State private var showFeedbackForm = false
     @State private var brightness: CGFloat = 0.5
     
     var body: some View {
@@ -403,11 +401,11 @@ struct TicketDetailView: View {
                 }
                 
                 HStack {
-                    Text("Event Name:")
+                    Text("Event ID:")
                     Spacer()
-                    Text(ticket.eventTitle)
+                    Text(ticket.eventId)
                         .font(.caption)
-                        .multilineTextAlignment(.trailing)
+                        .monospaced()
                 }
                 
                 HStack {
@@ -431,15 +429,6 @@ struct TicketDetailView: View {
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
-            } else if ticket.status == .used {
-                Button(action: { showFeedbackForm = true }) {
-                    Text("Review Event")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.orange)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
             }
             
             Spacer()
@@ -448,13 +437,6 @@ struct TicketDetailView: View {
         .navigationTitle("Ticket")
         .sheet(isPresented: $showQRCode) {
             QRCodeDisplayView(ticket: ticket)
-        }
-        .sheet(isPresented: $showFeedbackForm) {
-            if let event = viewModel.registeredEvents.first(where: { $0.id == ticket.eventId }) {
-                FeedbackFormView(event: event)
-            } else {
-                Text("Event data not found.")
-            }
         }
     }
 }
@@ -472,22 +454,26 @@ struct QRCodeDisplayView: View {
                     .font(.headline)
                     .padding(.top)
                 
-                // Real QR Code display
                 VStack(spacing: 12) {
-                    Image(uiImage: QRCodeHelper.shared.generateQRCode(from: ticket.encryptedData))
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 200, height: 200)
+                    if let qrImage = ticket.encryptedData.generateQRCode() {
+                        Image(uiImage: qrImage)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 200, height: 200)
+                    } else {
+                        Text("Error generating QR code")
+                            .foregroundColor(.red)
+                    }
                     
                     Text(ticket.id)
                         .font(.caption)
+                        .foregroundColor(.black)
                         .monospaced()
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
                 .background(Color.white)
-                .border(Color.black)
                 
                 Text("Please show this QR code to the staff")
                     .font(.caption)

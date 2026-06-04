@@ -530,19 +530,45 @@ struct QRScannerView: View {
                     .font(.headline)
                     .padding()
                 
-                ScannerView { result in
-                    switch result {
-                    case .success(let code):
-                        scannedCode = code
-                        checkAttendance()
-                    case .failure(let error):
-                        message = error.localizedDescription
+                ZStack {
+                    #if targetEnvironment(simulator)
+                    VStack(spacing: 12) {
+                        Image(systemName: "camera.metering.none")
+                            .font(.largeTitle)
+                            .foregroundColor(.gray)
+                        Text("Camera not available in Simulator")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                        Text("Use manual input below to test.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
+                    .frame(height: 250)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(12)
+                    #else
+                    ScannerView { result in
+                        switch result {
+                        case .success(let code):
+                            self.scannedCode = code
+                            self.checkAttendance()
+                        case .failure(let error):
+                            print("Scanner error: \(error)")
+                            self.message = "Failed to open camera or access denied."
+                        }
+                    }
+                    .frame(height: 250)
+                    .frame(maxWidth: .infinity)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.blue, lineWidth: 2)
+                    )
+                    #endif
                 }
-                .frame(height: 300)
-                .cornerRadius(12)
                 
-                TextField("Or enter ticket ID manually", text: $scannedCode)
+                TextField("Or enter ticket ID / Peserta ID manually", text: $scannedCode)
                     .padding()
                     .background(Color.white)
                     .cornerRadius(8)
@@ -551,7 +577,7 @@ struct QRScannerView: View {
                 if !message.isEmpty {
                     Text(message)
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(message.contains("successful") ? .green : .red)
                         .padding()
                 }
                 
@@ -579,19 +605,11 @@ struct QRScannerView: View {
     }
     
     private func checkAttendance() {
-        var pesertaId = scannedCode
-        
-        // If it's a base64 encoded string from ticket, try to decode it
-        if let decodedData = Data(base64Encoded: scannedCode),
-           let decodedString = String(data: decodedData, encoding: .utf8) {
-            let components = decodedString.components(separatedBy: ":")
-            if components.count >= 3 {
-                pesertaId = components[2]
-            }
-        }
+        // Extract peserta ID from scanned code
+        let pesertaId = scannedCode.split(separator: "|").dropFirst(2).first.map(String.init) ?? scannedCode
         
         viewModel.recordAttendance(eventId: eventId, pesertaId: pesertaId) { success in
-            message = success ? "Check-in successful!" : "Invalid ticket"
+            message = success ? "Check-in successful!" : "Invalid ticket or already checked in"
             scannedCode = ""
         }
     }

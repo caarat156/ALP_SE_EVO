@@ -170,9 +170,10 @@ class VendorViewModel: ObservableObject {
     
     func addCatalogItem(catalog: VendorCatalog, completion: @escaping (Bool, String?) -> Void) {
         firebaseService.addCatalogItem(catalog) { [weak self] success, error in
+
             if success, let vendorId = self?.catalogItems.first?.vendorId ?? Optional(catalog.vendorId) {
                 self?.fetchCatalog(vendorId: vendorId)
-            }
+
             completion(success, error)
         }
     }
