@@ -29,7 +29,7 @@ struct AdminMainView: View {
                 .tag(2)
             
             // Users Tab
-            AdminUsersView()
+            AdminUsersView(viewModel: viewModel)
                 .tabItem {
                     Text("Users")
                 }
@@ -351,7 +351,10 @@ struct AdminVendorsView: View {
                             }
                         }
                         .onDelete { indexSet in
-                            // Delete vendor functionality
+                            for index in indexSet {
+                                let vendor = viewModel.allVendors[index]
+                                viewModel.deleteVendorUser(vendorId: vendor.id) { _, _ in }
+                            }
                         }
                     }
                 }
@@ -404,7 +407,7 @@ struct AdminAddVendorView: View {
                 }
                 
                 Section {
-                    Button(action: addVendor) {
+                    Button(action: addUser) {
                         if isLoading {
                             ProgressView()
                         } else {
@@ -425,18 +428,19 @@ struct AdminAddVendorView: View {
         }
     }
     
-    private func addVendor() {
+    private func addUser() {
         isLoading = true
         
-        let vendor = Vendor(
+        let vendor = User(
             id: UUID().uuidString,
-            name: name,
             email: email,
+            name: name,
+            role: .vendor,
             phone: phone,
             createdAt: Date()
         )
         
-        viewModel.addVendor(vendor: vendor) { success, error in
+        viewModel.addUser(vendor: vendor) { success, error in
             isLoading = false
             if success {
                 dismiss()
@@ -448,7 +452,7 @@ struct AdminAddVendorView: View {
 }
 
 struct AdminVendorDetailView: View {
-    let vendor: Vendor
+    let vendor: User
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -487,20 +491,19 @@ struct AdminVendorDetailView: View {
 }
 
 struct AdminUsersView: View {
-    @State private var allUsers: [User] = []
-    @State private var isLoading = false
+    @ObservedObject var viewModel: AdminViewModel
     
     var body: some View {
         NavigationView {
             VStack {
-                if isLoading {
+                if viewModel.isLoading {
                     ProgressView()
-                } else if allUsers.isEmpty {
+                } else if viewModel.allUsers.isEmpty {
                     Text("No users")
                         .foregroundColor(.gray)
                 } else {
                     List {
-                        ForEach(allUsers.sorted(by: { $0.email < $1.email })) { user in
+                        ForEach(viewModel.allUsers.sorted(by: { $0.email < $1.email })) { user in
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(user.name)
@@ -519,20 +522,21 @@ struct AdminUsersView: View {
                                     .foregroundColor(.gray)
                             }
                         }
+                        .onDelete { indexSet in
+                            let sortedUsers = viewModel.allUsers.sorted(by: { $0.email < $1.email })
+                            for index in indexSet {
+                                let user = sortedUsers[index]
+                                viewModel.deleteUser(userId: user.id) { _, _ in }
+                            }
+                        }
                     }
                 }
             }
             .navigationTitle("Users Management")
             .onAppear {
-                loadUsers()
+                viewModel.fetchAllUsers()
             }
         }
-    }
-    
-    private func loadUsers() {
-        // Load all users from Firebase
-        isLoading = true
-        // Implementation here
     }
     
     private func roleColor(_ role: UserRole) -> Color {

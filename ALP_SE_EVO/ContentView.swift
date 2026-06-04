@@ -20,6 +20,7 @@ struct LoginView: View {
     @State private var isSeedingData = false
     @State private var seedMessage = ""
     @State private var seedSuccess = false
+    @State private var isResettingData = false
     
     var body: some View {
         NavigationView {
@@ -155,27 +156,51 @@ struct LoginView: View {
                             Divider()
                                 .padding(.horizontal, 20)
                             
-                            // Seed Demo Data Button
-                            Button(action: seedDemoData) {
-                                if isSeedingData {
-                                    HStack(spacing: 8) {
-                                        ProgressView()
-                                            .scaleEffect(0.8)
-                                        Text("Seeding data...")
-                                            .font(.caption)
-                                    }
-                                } else {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "arrow.down.circle.fill")
-                                            .font(.caption)
-                                        Text("Seed Demo Data")
-                                            .font(.caption)
-                                            .fontWeight(.semibold)
+                            HStack(spacing: 20) {
+                                // Seed Demo Data Button
+                                Button(action: seedDemoData) {
+                                    if isSeedingData {
+                                        HStack(spacing: 8) {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                            Text("Seeding...")
+                                                .font(.caption)
+                                        }
+                                    } else {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .font(.caption)
+                                            Text("Seed Demo Data")
+                                                .font(.caption)
+                                                .fontWeight(.semibold)
+                                        }
                                     }
                                 }
+                                .foregroundColor(.blue)
+                                .disabled(isSeedingData || isResettingData)
+                                
+                                // Reset Database Button
+                                Button(action: resetDatabase) {
+                                    if isResettingData {
+                                        HStack(spacing: 8) {
+                                            ProgressView()
+                                                .scaleEffect(0.8)
+                                            Text("Resetting...")
+                                                .font(.caption)
+                                        }
+                                    } else {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "trash.fill")
+                                                .font(.caption)
+                                            Text("Reset DB")
+                                                .font(.caption)
+                                                .fontWeight(.semibold)
+                                        }
+                                    }
+                                }
+                                .foregroundColor(.red)
+                                .disabled(isSeedingData || isResettingData)
                             }
-                            .foregroundColor(.blue)
-                            .disabled(isSeedingData)
                             
                             if !seedMessage.isEmpty {
                                 Text(seedMessage)
@@ -216,6 +241,18 @@ struct LoginView: View {
         authManager.seedDemoData { success, message in
             DispatchQueue.main.async {
                 isSeedingData = false
+                seedSuccess = success
+                seedMessage = message
+            }
+        }
+    }
+    
+    private func resetDatabase() {
+        isResettingData = true
+        seedMessage = ""
+        authManager.resetDatabase { success, message in
+            DispatchQueue.main.async {
+                isResettingData = false
                 seedSuccess = success
                 seedMessage = message
             }

@@ -166,6 +166,17 @@ struct CreateEventView: View {
     @State private var isLoading = false
     @State private var errorMessage = ""
     
+    // Vendor selection
+    @State private var selectedVendorItems: [SelectedVendorItem] = []
+    @State private var showVendorPicker = false
+    
+    struct SelectedVendorItem: Identifiable {
+        let id = UUID().uuidString
+        let catalogItem: VendorCatalog
+        let vendor: User
+        var quantity: Int
+    }
+    
     var body: some View {
         NavigationView {
             Form {
@@ -188,6 +199,45 @@ struct CreateEventView: View {
                             Text("\(quota)")
                                 .fontWeight(.bold)
                         }
+                    }
+                }
+                
+                // Vendor Products Section
+                Section(header: Text("Vendor Products")) {
+                    if selectedVendorItems.isEmpty {
+                        Text("No vendor products added")
+                            .foregroundColor(.gray)
+                            .font(.caption)
+                    } else {
+                        ForEach(Array(selectedVendorItems.enumerated()), id: \.element.id) { index, item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.catalogItem.name)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                Text("Vendor: \(item.vendor.name)")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                HStack {
+                                     Text(FormattingHelper.formatCurrency(Double(item.catalogItem.price)))
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                    Spacer()
+                                    Text("Qty: \(item.quantity)")
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                        .onDelete { indexSet in
+                            selectedVendorItems.remove(atOffsets: indexSet)
+                        }
+                    }
+                    
+                    Button(action: { showVendorPicker = true }) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Add Vendor Product")
+                        }
+                        .foregroundColor(.blue)
                     }
                 }
                 
@@ -218,6 +268,12 @@ struct CreateEventView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showVendorPicker) {
+                VendorItemPickerView(
+                    viewModel: viewModel,
+                    selectedItems: $selectedVendorItems
+                )
+            }
         }
     }
     
@@ -225,8 +281,9 @@ struct CreateEventView: View {
         guard let userId = authManager.currentUser?.id else { return }
         isLoading = true
         
+        let eventId = UUID().uuidString
         let event = Event(
-            id: UUID().uuidString,
+            id: eventId,
             title: title,
             description: description,
             eventDate: eventDate,
@@ -238,14 +295,126 @@ struct CreateEventView: View {
             createdAt: Date()
         )
         
-        viewModel.createEvent(event: event) { success, error in
-            isLoading = false
-            if success {
-                dismiss()
-            } else {
-                errorMessage = error ?? "Failed to create event"
+        // Build EventVendorItem list
+        let vendorItems: [EventVendorItem] = selectedVendorItems.map { selected in
+            EventVendorItem(
+                id: UUID().uuidString,
+                eventId: eventId,
+                vendorId: selected.catalogItem.vendorId,
+                catalogItemId: selected.catalogItem.id,
+                vendorName: selected.vendor.name,
+                itemName: selected.catalogItem.name,
+                itemPrice: selected.catalogItem.price,
+                quantity: selected.quantity,
+                eventTitle: title,
+                createdAt: Date()
+            )
+        }
+        
+        if vendorItems.isEmpty {
+            viewModel.createEvent(event: event) { success, error in
+                isLoading = false
+                if success { dismiss() }
+                else { errorMessage = error ?? "Failed to create event" }
+            }
+        } else {
+            viewModel.createEventWithVendorItems(event: event, vendorItems: vendorItems) { success, error in
+                isLoading = false
+                if success { dismiss() }
+                else { errorMessage = error ?? "Failed to create event" }
             }
         }
+    }
+}
+
+// MARK: - Vendor Item Picker
+struct VendorItemPickerView: View {
+    @ObservedObject var viewModel: PanitiaViewModel
+    @Binding var selectedItems: [CreateEventView.SelectedVendorItem]
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(viewModel.allVendors) { vendor in
+                    vendorSection(vendor: vendor)
+                }
+            }
+            .navigationTitle("Select Vendor Product")
+            .overlay {
+                if viewModel.allVendors.isEmpty && viewModel.allCatalogItems.isEmpty {
+                    Text("Loading vendors...")
+                        .foregroundColor(.gray)
+                } else if viewModel.allCatalogItems.isEmpty {
+                    Text("No vendor products available")
+                        .foregroundColor(.gray)
+                }
+            }
+            .onAppear {
+                viewModel.fetchAllVendors()
+                viewModel.fetchAllCatalogItems()
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func vendorSection(vendor: User) -> some View {
+        let vendorItems = viewModel.allCatalogItems.filter { $0.vendorId == vendor.id }
+        if !vendorItems.isEmpty {
+            Section(header: Text(vendor.name)) {
+                ForEach(vendorItems) { item in
+                    vendorItemRow(item: item, vendor: vendor)
+                }
+            }
+        }
+    }
+    
+    private func vendorItemRow(item: VendorCatalog, vendor: User) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.name)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                if !item.description.isEmpty {
+                    Text(item.description)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+                Text(FormattingHelper.formatCurrency(Double(item.price)))
+                    .font(.caption)
+                    .foregroundColor(.blue)
+            }
+            
+            Spacer()
+            
+            Button(action: {
+                addItem(item: item, vendor: vendor)
+            }) {
+                Text("Add")
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(4)
+            }
+        }
+    }
+    
+    private func addItem(item: VendorCatalog, vendor: User) {
+        let selected = CreateEventView.SelectedVendorItem(
+            catalogItem: item,
+            vendor: vendor,
+            quantity: 1
+        )
+        selectedItems.append(selected)
+        dismiss()
     }
 }
 
@@ -288,6 +457,33 @@ struct EventManagementView: View {
                     }
                 }
                 
+                Section(header: Text("Vendor Products")) {
+                    if viewModel.eventVendorItems.isEmpty {
+                        Text("No vendor products used")
+                            .foregroundColor(.gray)
+                            .font(.caption)
+                    } else {
+                        ForEach(viewModel.eventVendorItems) { item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.itemName)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                Text("Vendor: \(item.vendorName)")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                HStack {
+                                    Text(FormattingHelper.formatCurrency(Double(item.itemPrice)))
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                    Spacer()
+                                    Text("Qty: \(item.quantity)")
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 Section(header: Text("Management")) {
                     Button(action: { showAttendanceScanner = true }) {
                         HStack {
@@ -308,6 +504,9 @@ struct EventManagementView: View {
             }
         }
         .navigationTitle("Event Management")
+        .onAppear {
+            viewModel.fetchEventVendorItems(eventId: event.id)
+        }
         .sheet(isPresented: $showAttendanceScanner) {
             QRScannerView(eventId: event.id, viewModel: viewModel)
         }
@@ -331,17 +530,16 @@ struct QRScannerView: View {
                     .font(.headline)
                     .padding()
                 
-                VStack(spacing: 12) {
-                    Text("QR Code Scanner Area")
-                        .font(.headline)
-                    
-                    Text("Enter the ticket ID manually or use a scanner if available.")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                ScannerView { result in
+                    switch result {
+                    case .success(let code):
+                        scannedCode = code
+                        checkAttendance()
+                    case .failure(let error):
+                        message = error.localizedDescription
+                    }
                 }
-                .frame(height: 200)
-                .frame(maxWidth: .infinity)
-                .background(Color.gray.opacity(0.1))
+                .frame(height: 300)
                 .cornerRadius(12)
                 
                 TextField("Or enter ticket ID manually", text: $scannedCode)
@@ -381,8 +579,16 @@ struct QRScannerView: View {
     }
     
     private func checkAttendance() {
-        // Extract peserta ID from scanned code
-        let pesertaId = scannedCode.split(separator: "|").dropFirst(2).first.map(String.init) ?? scannedCode
+        var pesertaId = scannedCode
+        
+        // If it's a base64 encoded string from ticket, try to decode it
+        if let decodedData = Data(base64Encoded: scannedCode),
+           let decodedString = String(data: decodedData, encoding: .utf8) {
+            let components = decodedString.components(separatedBy: ":")
+            if components.count >= 3 {
+                pesertaId = components[2]
+            }
+        }
         
         viewModel.recordAttendance(eventId: eventId, pesertaId: pesertaId) { success in
             message = success ? "Check-in successful!" : "Invalid ticket"

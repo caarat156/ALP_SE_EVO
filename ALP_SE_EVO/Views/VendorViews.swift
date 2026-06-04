@@ -13,25 +13,33 @@ struct VendorMainView: View {
                     Text("Catalog")
                 }
                 .tag(0)
+                
+            // Orders Tab
+            VendorOrdersView(viewModel: viewModel)
+                .tabItem {
+                    Text("Orders")
+                }
+                .tag(1)
             
             // Invoices Tab
             VendorInvoicesView(viewModel: viewModel)
                 .tabItem {
                     Text("Invoices")
                 }
-                .tag(1)
+                .tag(2)
             
             // Profile Tab
             VendorProfileView()
                 .tabItem {
                     Text("Profile")
                 }
-                .tag(2)
+                .tag(3)
         }
         .onAppear {
             if let userId = authManager.currentUser?.id {
                 viewModel.fetchCatalog(vendorId: userId)
                 viewModel.fetchInvoices(vendorId: userId)
+                viewModel.fetchEventOrders(vendorId: userId)
             }
         }
     }
@@ -57,7 +65,7 @@ struct VendorCatalogView: View {
                                     Text(item.name)
                                         .font(.headline)
                                     HStack(spacing: 12) {
-                                        Text(FormattingHelper.formatCurrency(item.price))
+                                        Text(FormattingHelper.formatCurrency(Double(item.price)))
                                             .font(.caption)
                                             .fontWeight(.semibold)
                                             .foregroundColor(.blue)
@@ -163,7 +171,7 @@ struct AddCatalogItemView: View {
             catalogId: UUID().uuidString,
             name: name,
             description: description,
-            price: priceDouble,
+            price: Int(priceDouble),
             quantity: quantity,
             createdAt: Date()
         )
@@ -189,8 +197,8 @@ struct CatalogItemDetailView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                 
-                if let description = item.description {
-                    Text(description)
+                if !item.description.isEmpty {
+                    Text(item.description)
                         .font(.body)
                         .foregroundColor(.gray)
                 }
@@ -202,7 +210,7 @@ struct CatalogItemDetailView: View {
                 HStack {
                     Text("Price")
                     Spacer()
-                    Text(FormattingHelper.formatCurrency(item.price))
+                    Text(FormattingHelper.formatCurrency(Double(item.price)))
                         .fontWeight(.semibold)
                         .font(.headline)
                 }
@@ -262,7 +270,7 @@ struct VendorInvoicesView: View {
                                     }
                                     
                                     HStack {
-                                        Text("Amount: \(FormattingHelper.formatCurrency(invoice.amount))")
+                                        Text("Amount: \(FormattingHelper.formatCurrency(Double(invoice.amount)))")
                                             .font(.caption)
                                             .foregroundColor(.gray)
                                         Spacer()
@@ -286,8 +294,6 @@ struct VendorInvoicesView: View {
             return .red
         case .paid:
             return .green
-        case .overdue:
-            return .orange
         case .cancelled:
             return .gray
         }
@@ -306,17 +312,30 @@ struct InvoiceDetailView: View {
                 HStack {
                     Text("Invoice ID:")
                     Spacer()
-                    Text(invoice.id)
+                    Text(invoice.id.prefix(8))
                         .font(.caption)
                         .monospaced()
                 }
                 
                 HStack {
-                    Text("Event ID:")
+                    Text("Event Name:")
                     Spacer()
-                    Text(invoice.eventId)
+                    Text(invoice.eventTitle)
                         .font(.caption)
-                        .monospaced()
+                }
+                
+                HStack {
+                    Text("Product Name:")
+                    Spacer()
+                    Text(invoice.catalogItemName)
+                        .font(.caption)
+                }
+                
+                HStack {
+                    Text("Quantity:")
+                    Spacer()
+                    Text("\(invoice.quantity)")
+                        .font(.caption)
                 }
             }
             .padding()
@@ -327,7 +346,7 @@ struct InvoiceDetailView: View {
                 HStack {
                     Text("Amount")
                     Spacer()
-                    Text(FormattingHelper.formatCurrency(invoice.amount))
+                    Text(FormattingHelper.formatCurrency(Double(invoice.amount)))
                         .fontWeight(.semibold)
                         .font(.headline)
                 }
@@ -385,8 +404,6 @@ struct InvoiceDetailView: View {
             return .red
         case .paid:
             return .green
-        case .overdue:
-            return .orange
         case .cancelled:
             return .gray
         }
@@ -430,6 +447,186 @@ struct VendorProfileView: View {
     
     private func logout() {
         authManager.logout()
+    }
+}
+
+// MARK: - Vendor Orders View
+struct VendorOrdersView: View {
+    @ObservedObject var viewModel: VendorViewModel
+    @State private var selectedOrder: EventVendorItem?
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                if viewModel.isLoading {
+                    ProgressView()
+                } else if viewModel.eventOrders.isEmpty {
+                    Text("No orders yet")
+                        .foregroundColor(.gray)
+                } else {
+                    List {
+                        ForEach(viewModel.eventOrders) { order in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Event: \(order.eventTitle)")
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(order.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                }
+                                
+                                Text("Product: \(order.itemName)")
+                                    .font(.subheadline)
+                                
+                                HStack {
+                                    Text("Qty: \(order.quantity)")
+                                        .font(.caption)
+                                    Spacer()
+                                    Text(FormattingHelper.formatCurrency(Double(order.itemPrice * order.quantity)))
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.blue)
+                                }
+                                
+                                Button(action: {
+                                    selectedOrder = order
+                                }) {
+                                    Text("Create Invoice")
+                                        .font(.caption)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 6)
+                                        .background(Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(4)
+                                }
+                                .padding(.top, 4)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Event Orders")
+            .sheet(item: $selectedOrder) { order in
+                CreateInvoiceView(viewModel: viewModel, order: order)
+            }
+        }
+    }
+}
+
+// MARK: - Create Invoice View
+struct CreateInvoiceView: View {
+    @ObservedObject var viewModel: VendorViewModel
+    let order: EventVendorItem
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var notes = ""
+    @State private var dueDate = Date().addingTimeInterval(86400 * 7) // Default 7 days
+    @State private var isLoading = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Order Details")) {
+                    HStack {
+                        Text("Event")
+                        Spacer()
+                        Text(order.eventTitle)
+                            .foregroundColor(.gray)
+                    }
+                    HStack {
+                        Text("Product")
+                        Spacer()
+                        Text(order.itemName)
+                            .foregroundColor(.gray)
+                    }
+                    HStack {
+                        Text("Quantity")
+                        Spacer()
+                        Text("\(order.quantity)")
+                            .foregroundColor(.gray)
+                    }
+                    HStack {
+                        Text("Total Amount")
+                        Spacer()
+                        Text(FormattingHelper.formatCurrency(Double(order.itemPrice * order.quantity)))
+                            .fontWeight(.semibold)
+                    }
+                }
+                
+                Section(header: Text("Invoice Settings")) {
+                    DatePicker("Due Date", selection: $dueDate, displayedComponents: .date)
+                    TextEditor(text: $notes)
+                        .frame(height: 80)
+                        .overlay(
+                            Text(notes.isEmpty ? "Additional notes (optional)" : "")
+                                .foregroundColor(.gray)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false),
+                            alignment: .topLeading
+                        )
+                }
+                
+                if !errorMessage.isEmpty {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                }
+                
+                Section {
+                    Button(action: createInvoice) {
+                        if isLoading {
+                            ProgressView()
+                        } else {
+                            Text("Send Invoice")
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .disabled(isLoading)
+                }
+            }
+            .navigationTitle("New Invoice")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+    
+    private func createInvoice() {
+        isLoading = true
+        let totalAmount = order.itemPrice * order.quantity
+        
+        let invoice = Invoice(
+            id: UUID().uuidString,
+            eventId: order.eventId,
+            vendorId: order.vendorId,
+            eventTitle: order.eventTitle,
+            vendorName: order.vendorName,
+            catalogItemName: order.itemName,
+            amount: totalAmount,
+            quantity: order.quantity,
+            status: .unpaid,
+            dueDate: dueDate,
+            createdAt: Date(),
+            notes: notes.isEmpty ? nil : notes
+        )
+        
+        viewModel.createInvoice(invoice: invoice) { success, error in
+            isLoading = false
+            if success {
+                dismiss()
+            } else {
+                errorMessage = error ?? "Failed to create invoice"
+            }
+        }
     }
 }
 

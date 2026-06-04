@@ -194,7 +194,7 @@ struct AvailableEventsView: View {
     
     private func registerForEvent(_ event: Event) {
         guard let userId = authManager.currentUser?.id else { return }
-        viewModel.registerEvent(pesertaId: userId, eventId: event.id) { success, _ in
+        viewModel.registerEvent(pesertaId: userId, eventId: event.id, eventTitle: event.title) { success, _ in
             if success {
                 dismiss()
             }
@@ -361,9 +361,9 @@ struct PesertaTicketsView: View {
                         .foregroundColor(.gray)
                 } else {
                     ForEach(viewModel.tickets) { ticket in
-                        NavigationLink(destination: TicketDetailView(ticket: ticket)) {
+                        NavigationLink(destination: TicketDetailView(ticket: ticket, viewModel: viewModel)) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Event: \(ticket.eventId)")
+                                Text("Event: \(ticket.eventTitle)")
                                     .font(.headline)
                                 Text("Status: \(ticket.status.rawValue.capitalized)")
                                     .font(.caption)
@@ -383,7 +383,9 @@ struct PesertaTicketsView: View {
 
 struct TicketDetailView: View {
     let ticket: Ticket
+    @ObservedObject var viewModel: PesertaViewModel
     @State private var showQRCode = false
+    @State private var showFeedbackForm = false
     @State private var brightness: CGFloat = 0.5
     
     var body: some View {
@@ -401,11 +403,11 @@ struct TicketDetailView: View {
                 }
                 
                 HStack {
-                    Text("Event ID:")
+                    Text("Event Name:")
                     Spacer()
-                    Text(ticket.eventId)
+                    Text(ticket.eventTitle)
                         .font(.caption)
-                        .monospaced()
+                        .multilineTextAlignment(.trailing)
                 }
                 
                 HStack {
@@ -429,6 +431,15 @@ struct TicketDetailView: View {
                         .foregroundColor(.white)
                         .cornerRadius(8)
                 }
+            } else if ticket.status == .used {
+                Button(action: { showFeedbackForm = true }) {
+                    Text("Review Event")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
             }
             
             Spacer()
@@ -437,6 +448,13 @@ struct TicketDetailView: View {
         .navigationTitle("Ticket")
         .sheet(isPresented: $showQRCode) {
             QRCodeDisplayView(ticket: ticket)
+        }
+        .sheet(isPresented: $showFeedbackForm) {
+            if let event = viewModel.registeredEvents.first(where: { $0.id == ticket.eventId }) {
+                FeedbackFormView(event: event)
+            } else {
+                Text("Event data not found.")
+            }
         }
     }
 }
@@ -454,12 +472,13 @@ struct QRCodeDisplayView: View {
                     .font(.headline)
                     .padding(.top)
                 
-                // QR Code placeholder (in real app, use a QR code library)
+                // Real QR Code display
                 VStack(spacing: 12) {
-                    Text("[ QR CODE PLACEHOLDER ]")
-                        .font(.headline)
-                        .foregroundColor(.black)
-                        .multilineTextAlignment(.center)
+                    Image(uiImage: QRCodeHelper.shared.generateQRCode(from: ticket.encryptedData))
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 200, height: 200)
                     
                     Text(ticket.id)
                         .font(.caption)

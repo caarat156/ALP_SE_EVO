@@ -40,11 +40,11 @@ struct SampleData {
         id: "event1",
         title: "Freshmen Welcoming 2026",
         description: "A welcoming event for new students at Ciputra University. Join us for an exciting day with activities, talks from senior students, and networking opportunities.",
-        eventDate: Date().addingTimeInterval(86400 * 5), // 5 days from now
+        eventDate: Date().addingTimeInterval(-86400 * 2), // 2 days ago
         location: "Ciputra University Auditorium",
         quota: 500,
         registeredCount: 245,
-        status: .upcoming,
+        status: .completed,
         createdBy: "panitia123",
         createdAt: Date()
     )
@@ -81,8 +81,9 @@ struct SampleData {
     static let sampleTicket1 = Ticket(
         id: "ticket1",
         eventId: "event1",
+        eventTitle: sampleEvent1.title,
         pesertaId: "peserta123",
-        status: .active,
+        status: .used,
         encryptedData: "dGlja2tldDE6ZXZlbnQxOnBlc2VydGExMjM6MTcxNzMyMzMzMw==",
         createdAt: Date()
     )
@@ -90,6 +91,7 @@ struct SampleData {
     static let sampleTicket2 = Ticket(
         id: "ticket2",
         eventId: "event2",
+        eventTitle: sampleEvent2.title,
         pesertaId: "peserta123",
         status: .active,
         encryptedData: "dGlja2tldDI6ZXZlbnQyOnBlc2VydGExMjM6MTcxNzMyNDQzMw==",
@@ -99,18 +101,20 @@ struct SampleData {
     static let sampleTickets = [sampleTicket1, sampleTicket2]
     
     // Sample Vendors
-    static let sampleVendor1 = Vendor(
+    static let sampleVendor1 = User(
         id: "vendor1",
-        name: "Catering Delights",
         email: "catering@delights.com",
+        name: "Catering Delights",
+        role: .vendor,
         phone: "+62812345678",
         createdAt: Date()
     )
     
-    static let sampleVendor2 = Vendor(
+    static let sampleVendor2 = User(
         id: "vendor2",
-        name: "Premium Sound & Lights",
         email: "sound@premium.com",
+        name: "Premium Sound & Lights",
+        role: .vendor,
         phone: "+62887654321",
         createdAt: Date()
     )
@@ -147,7 +151,11 @@ struct SampleData {
         id: "inv1",
         eventId: "event1",
         vendorId: "vendor1",
+        eventTitle: sampleEvent1.title,
+        vendorName: sampleVendor1.name,
+        catalogItemName: sampleCatalog1.name,
         amount: 50000000,
+        quantity: 1,
         status: .unpaid,
         dueDate: Date().addingTimeInterval(86400 * 7),
         createdAt: Date(),
@@ -158,7 +166,11 @@ struct SampleData {
         id: "inv2",
         eventId: "event2",
         vendorId: "vendor2",
+        eventTitle: sampleEvent2.title,
+        vendorName: sampleVendor2.name,
+        catalogItemName: "Sound System Package",
         amount: 15000000,
+        quantity: 1,
         status: .paid,
         dueDate: Date().addingTimeInterval(-86400),
         createdAt: Date(),
@@ -168,30 +180,34 @@ struct SampleData {
     
     static let sampleInvoices = [sampleInvoice1, sampleInvoice2]
     
-    // Sample Feedback
-    static let sampleFeedback1 = Feedback(
-        id: "feedback1",
+    // Sample Event Vendor Items (linking vendor products to events)
+    static let sampleEventVendorItem1 = EventVendorItem(
+        id: "evi1",
         eventId: "event1",
-        pesertaId: "peserta123",
-        targetId: "panitia123",
-        rating: 5,
-        comment: "Excellent event organization! The committee did a great job.",
-        type: "panitia",
+        vendorId: "vendor1",
+        catalogItemId: "catalog1",
+        vendorName: sampleVendor1.name,
+        itemName: sampleCatalog1.name,
+        itemPrice: sampleCatalog1.price,
+        quantity: 1,
+        eventTitle: sampleEvent1.title,
         createdAt: Date()
     )
     
-    static let sampleFeedback2 = Feedback(
-        id: "feedback2",
-        eventId: "event1",
-        pesertaId: "peserta123",
-        targetId: "vendor1",
-        rating: 4,
-        comment: "Good food quality, though service could be faster",
-        type: "vendor",
+    static let sampleEventVendorItem2 = EventVendorItem(
+        id: "evi2",
+        eventId: "event2",
+        vendorId: "vendor2",
+        catalogItemId: "catalog2",
+        vendorName: sampleVendor2.name,
+        itemName: sampleCatalog2.name,
+        itemPrice: sampleCatalog2.price,
+        quantity: 1,
+        eventTitle: sampleEvent2.title,
         createdAt: Date()
     )
     
-    static let sampleFeedbacks = [sampleFeedback1, sampleFeedback2]
+    static let sampleEventVendorItems = [sampleEventVendorItem1, sampleEventVendorItem2]
     
     // Print all sample data info
     static func printSampleDataInfo() {
@@ -213,7 +229,7 @@ struct SampleData {
         Vendors: \(sampleVendors.count)
         Catalog Items: \(sampleCatalogItems.count)
         Invoices: \(sampleInvoices.count)
-        Feedback: \(sampleFeedbacks.count)
+        Event-Vendor Items: \(sampleEventVendorItems.count)
         """)
     }
 }
@@ -227,7 +243,7 @@ class MockFirebaseService {
     private var events: [String: Event] = [:]
     private var tickets: [String: Ticket] = [:]
     private var feedback: [String: Feedback] = [:]
-    private var vendors: [String: Vendor] = [:]
+    private var vendors: [String: User] = [:]
     
     init() {
         // Initialize with sample data
@@ -291,13 +307,13 @@ class MockFirebaseService {
     
     // MARK: - Mock Vendor Operations
     
-    func getAllVendors(completion: @escaping ([Vendor]?, String?) -> Void) {
+    func getAllVendors(completion: @escaping ([User]?, String?) -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             completion(Array(self.vendors.values), nil)
         }
     }
     
-    func addVendor(_ vendor: Vendor, completion: @escaping (Bool, String?) -> Void) {
+    func addUser(_ vendor: User, completion: @escaping (Bool, String?) -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             self.vendors[vendor.id] = vendor
             completion(true, nil)
