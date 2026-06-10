@@ -54,6 +54,14 @@ class PesertaViewModel: ObservableObject {
             completion(success, error)
         }
     }
+    
+    func getEventTitle(for eventId: String) -> String {
+        return registeredEvents.first(where: { $0.id == eventId })?.title ?? "Loading Event Info..."
+    }
+    
+    func hasAttendedEvent(eventId: String) -> Bool {
+        return tickets.contains(where: { $0.eventId == eventId && $0.status == .used })
+    }
 }
 
 class PanitiaViewModel: ObservableObject {
@@ -94,8 +102,8 @@ class PanitiaViewModel: ObservableObject {
         }
     }
     
-    func recordAttendance(eventId: String, pesertaId: String, completion: @escaping (Bool) -> Void) {
-        firebaseService.recordAttendance(eventId: eventId, pesertaId: pesertaId) { success, _ in
+    func recordAttendance(eventId: String, scannedCode: String, completion: @escaping (Bool) -> Void) {
+        firebaseService.recordAttendance(eventId: eventId, scannedCode: scannedCode) { success, _ in
             completion(success)
         }
     }
@@ -136,6 +144,15 @@ class VendorViewModel: ObservableObject {
                     self?.invoices = invoices
                 }
             }
+        }
+    }
+    
+    func updateInvoiceStatus(invoiceId: String, vendorId: String, status: InvoiceStatus, completion: @escaping (Bool, String?) -> Void) {
+        firebaseService.updateInvoiceStatus(invoiceId: invoiceId, status: status) { [weak self] success, error in
+            if success {
+                self?.fetchInvoices(vendorId: vendorId)
+            }
+            completion(success, error)
         }
     }
 }

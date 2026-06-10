@@ -100,7 +100,7 @@ struct SampleData {
     
     // Sample Vendors
     static let sampleVendor1 = Vendor(
-        id: "vendor1",
+        id: "vendor123",
         name: "Catering Delights",
         email: "catering@delights.com",
         phone: "+62812345678",
@@ -120,7 +120,7 @@ struct SampleData {
     // Sample Catalog Items
     static let sampleCatalog1 = VendorCatalog(
         id: "catalog1",
-        vendorId: "vendor1",
+        vendorId: "vendor123",
         catalogId: "pkg1",
         name: "Standard Catering Package",
         description: "Buffet with local and international cuisine for up to 500 persons",
@@ -131,7 +131,7 @@ struct SampleData {
     
     static let sampleCatalog2 = VendorCatalog(
         id: "catalog2",
-        vendorId: "vendor1",
+        vendorId: "vendor123",
         catalogId: "pkg2",
         name: "Premium Catering Package",
         description: "Premium buffet with fine dining options for up to 500 persons",
@@ -146,7 +146,7 @@ struct SampleData {
     static let sampleInvoice1 = Invoice(
         id: "inv1",
         eventId: "event1",
-        vendorId: "vendor1",
+        vendorId: "vendor123",
         amount: 50000000,
         status: .unpaid,
         dueDate: Date().addingTimeInterval(86400 * 7),
@@ -184,7 +184,7 @@ struct SampleData {
         id: "feedback2",
         eventId: "event1",
         pesertaId: "peserta123",
-        targetId: "vendor1",
+        targetId: "vendor123",
         rating: 4,
         comment: "Good food quality, though service could be faster",
         type: "vendor",

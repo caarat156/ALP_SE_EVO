@@ -49,11 +49,45 @@ extension String {
 // MARK: - Color Extensions
 
 extension Color {
-    static var darkStart = Color(red: 0.1, green: 0.1, blue: 0.15)
-    static var darkEnd = Color(red: 0.05, green: 0.05, blue: 0.1)
+    // MARK: Solid Light Blue Theme (no gradients)
     
-    static var lightStart = Color(red: 0.95, green: 0.95, blue: 1.0)
-    static var lightEnd = Color(red: 0.9, green: 0.9, blue: 0.98)
+    // Primary solid light blue — #87CEFA — used on main headers, buttons, nav bars
+    static let appPrimary    = Color(red: 0.529, green: 0.808, blue: 0.980) // #87CEFA
+    
+    // Darker accent for icons, labels, active states — #4A90D9
+    static let appAccent     = Color(red: 0.290, green: 0.565, blue: 0.851) // #4A90D9
+    
+    // Deep blue for important text on light bg — #1A5E8C
+    static let appDeep       = Color(red: 0.102, green: 0.369, blue: 0.549) // #1A5E8C
+    
+    // Background: very pale icy blue — #EEF6FD
+    static let appBackground = Color(red: 0.933, green: 0.965, blue: 0.992) // #EEF6FD
+    
+    // Card surfaces: barely-blue white — #F5FAFF
+    static let appCard       = Color(red: 0.961, green: 0.980, blue: 1.000) // #F5FAFF
+    
+    // Text on light backgrounds
+    static let appTextPrimary   = Color(red: 0.10, green: 0.20, blue: 0.35)   // near-dark navy
+    static let appTextSecondary = Color(red: 0.40, green: 0.55, blue: 0.68)   // muted steel-blue
+    
+    // Icon tint / separator / divider
+    static let appIconTint   = Color(red: 0.290, green: 0.565, blue: 0.851) // same as appAccent
+    static let appDivider    = Color(red: 0.75, green: 0.88, blue: 0.97)
+    
+    // Status colors (kept solid, paired with light bg for readability)
+    static let appGreen      = Color(red: 0.18, green: 0.70, blue: 0.45)
+    static let appOrange     = Color(red: 0.95, green: 0.55, blue: 0.15)
+    static let appRed        = Color(red: 0.85, green: 0.22, blue: 0.22)
+    
+    // Legacy aliases (kept so existing references compile without changes)
+    static let appLightBlue  = Color(red: 0.529, green: 0.808, blue: 0.980)
+    static let appMediumBlue = Color(red: 0.290, green: 0.565, blue: 0.851)
+    static let appDarkBlue   = Color(red: 0.102, green: 0.369, blue: 0.549)
+    static let appCardBg     = Color(red: 0.961, green: 0.980, blue: 1.000)
+    static let darkStart     = Color(red: 0.102, green: 0.369, blue: 0.549)
+    static let darkEnd       = Color(red: 0.10, green: 0.20, blue: 0.35)
+    static let lightStart    = Color(red: 0.933, green: 0.965, blue: 0.992)
+    static let lightEnd      = Color(red: 0.933, green: 0.965, blue: 0.992)
 }
 
 // MARK: - Double Extensions

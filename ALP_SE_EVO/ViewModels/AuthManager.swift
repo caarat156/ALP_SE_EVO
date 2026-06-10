@@ -83,14 +83,36 @@ class AuthManager: NSObject, ObservableObject {
             )
             
             self?.firebaseService.saveUser(newUser) { success, error in
-                DispatchQueue.main.async {
-                    self?.isLoading = false
-                    if success {
-                        self?.currentUser = newUser
-                        self?.isLoggedIn = true
-                        completion(true, nil)
-                    } else {
-                        completion(false, error ?? "Failed to save user data")
+                if success && role == .vendor {
+                    let vendorObj = Vendor(
+                        id: uid,
+                        name: name,
+                        email: email,
+                        phone: nil,
+                        createdAt: Date()
+                    )
+                    self?.firebaseService.addVendor(vendorObj) { vendorSuccess, vendorError in
+                        DispatchQueue.main.async {
+                            self?.isLoading = false
+                            if vendorSuccess {
+                                self?.currentUser = newUser
+                                self?.isLoggedIn = true
+                                completion(true, nil)
+                            } else {
+                                completion(false, vendorError ?? "Failed to save vendor details")
+                            }
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self?.isLoading = false
+                        if success {
+                            self?.currentUser = newUser
+                            self?.isLoggedIn = true
+                            completion(true, nil)
+                        } else {
+                            completion(false, error ?? "Failed to save user data")
+                        }
                     }
                 }
             }
@@ -165,7 +187,36 @@ class AuthManager: NSObject, ObservableObject {
                     
                     self?.firebaseService.saveUser(newUser) { _, _ in
                         successCount += 1
-                        group.leave()
+                        if newUser.role == .vendor {
+                            let vendorObj = Vendor(
+                                id: newUser.id,
+                                name: newUser.name,
+                                email: newUser.email,
+                                phone: "+62812345678",
+                                createdAt: Date()
+                            )
+                            self?.firebaseService.addVendor(vendorObj) { _, _ in
+                                // Seed catalog items for the new dynamic vendor UID
+                                for var item in SampleData.sampleCatalogItems {
+                                    item.vendorId = newUser.id
+                                    group.enter()
+                                    self?.firebaseService.addCatalogItem(item) { _, _ in
+                                        group.leave()
+                                    }
+                                }
+                                // Seed invoices for the new dynamic vendor UID
+                                for var inv in SampleData.sampleInvoices {
+                                    inv.vendorId = newUser.id
+                                    group.enter()
+                                    self?.firebaseService.createInvoice(inv) { _, _ in
+                                        group.leave()
+                                    }
+                                }
+                                group.leave()
+                            }
+                        } else {
+                            group.leave()
+                        }
                     }
                 } else {
                     group.leave()
@@ -189,9 +240,25 @@ class AuthManager: NSObject, ObservableObject {
             }
         }
         
+        // Seed sample catalog items (default vendor123)
+        for item in SampleData.sampleCatalogItems {
+            group.enter()
+            firebaseService.addCatalogItem(item) { _, _ in
+                group.leave()
+            }
+        }
+        
+        // Seed sample invoices (default vendor123)
+        for invoice in SampleData.sampleInvoices {
+            group.enter()
+            firebaseService.createInvoice(invoice) { _, _ in
+                group.leave()
+            }
+        }
+        
         group.notify(queue: .main) {
             self.isLoading = false
-            let message = "Data seeded. Created \(successCount) new users. (\(skipCount) already existed). Seeded \(SampleData.sampleEvents.count) events and \(SampleData.sampleVendors.count) vendors."
+            let message = "Data seeded. Created \(successCount) new users. (\(skipCount) already existed). Seeded \(SampleData.sampleEvents.count) events, \(SampleData.sampleVendors.count) vendors, catalogs, and invoices."
             completion(true, message)
         }
     }

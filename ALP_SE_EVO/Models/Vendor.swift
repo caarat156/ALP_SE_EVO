@@ -18,7 +18,7 @@ struct Vendor: Identifiable, Codable {
 
 struct VendorCatalog: Identifiable, Codable {
     let id: String
-    let vendorId: String
+    var vendorId: String
     var catalogId: String
     var name: String
     var description: String?
@@ -39,6 +39,7 @@ struct VendorCatalog: Identifiable, Codable {
 }
 
 enum InvoiceStatus: String, Codable {
+    case pending
     case unpaid
     case paid
     case overdue
@@ -48,7 +49,7 @@ enum InvoiceStatus: String, Codable {
 struct Invoice: Identifiable, Codable {
     let id: String
     let eventId: String
-    let vendorId: String
+    var vendorId: String
     var amount: Double
     var status: InvoiceStatus
     var dueDate: Date

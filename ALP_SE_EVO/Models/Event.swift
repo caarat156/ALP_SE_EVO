@@ -18,6 +18,7 @@ struct Event: Identifiable, Codable {
     var status: EventStatus
     var createdBy: String // Admin ID
     var createdAt: Date
+    var vendorId: String? = nil // Selected Vendor ID
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -30,6 +31,7 @@ struct Event: Identifiable, Codable {
         case status
         case createdBy = "created_by"
         case createdAt = "created_at"
+        case vendorId = "vendor_id"
     }
 }
 

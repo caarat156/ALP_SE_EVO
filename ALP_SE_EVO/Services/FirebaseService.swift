@@ -1,11 +1,48 @@
 import Foundation
 import Firebase
 import FirebaseFirestore
+import FirebaseFunctions
 
 class FirebaseService {
     static let shared = FirebaseService()
     
     private let db = Firestore.firestore()
+    private let functions = Functions.functions()
+    
+    // MARK: - Firestore Serialization Helpers
+    
+    /// Converts Firestore-native types (Timestamp, GeoPoint, etc.) that JSONSerialization
+    /// cannot handle into JSON-safe equivalents. Timestamps become Double (Unix seconds).
+    private func sanitizeFirestoreData(_ data: [String: Any]) -> [String: Any] {
+        var result: [String: Any] = [:]
+        for (key, value) in data {
+            result[key] = sanitizeValue(value)
+        }
+        return result
+    }
+    
+    private func sanitizeValue(_ value: Any) -> Any {
+        if let timestamp = value as? Timestamp {
+            return timestamp.dateValue().timeIntervalSince1970
+        } else if let dict = value as? [String: Any] {
+            return sanitizeFirestoreData(dict)
+        } else if let array = value as? [Any] {
+            return array.map { sanitizeValue($0) }
+        }
+        return value
+    }
+    
+    private func firestoreDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        return decoder
+    }
+    
+    private func firestoreEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        return encoder
+    }
     
     // MARK: - User Operations
     
@@ -22,8 +59,8 @@ class FirebaseService {
             }
             
             do {
-                let jsonData = try JSONSerialization.data(withJSONObject: data)
-                let user = try JSONDecoder().decode(User.self, from: jsonData)
+                let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(data))
+                let user = try self.firestoreDecoder().decode(User.self, from: jsonData)
                 completion(user, nil)
             } catch {
                 completion(nil, error.localizedDescription)
@@ -33,8 +70,7 @@ class FirebaseService {
     
     func saveUser(_ user: User, completion: @escaping (Bool, String?) -> Void) {
         do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(user)
+            let data = try firestoreEncoder().encode(user)
             let jsonObject = try JSONSerialization.jsonObject(with: data)
 
             guard let jsonDict = jsonObject as? [String: Any] else {
@@ -54,12 +90,33 @@ class FirebaseService {
         }
     }
     
+    func getAllUsers(completion: @escaping ([User]?, String?) -> Void) {
+        db.collection("users").getDocuments { snapshot, error in
+            if let error = error {
+                completion(nil, error.localizedDescription)
+                return
+            }
+            
+            var users: [User] = []
+            for document in snapshot?.documents ?? [] {
+                do {
+                    let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(document.data()))
+                    let user = try self.firestoreDecoder().decode(User.self, from: jsonData)
+                    users.append(user)
+                } catch {
+                    print("Error decoding user: \(error)")
+                }
+            }
+            
+            completion(users, nil)
+        }
+    }
+    
     // MARK: - Event Operations
     
     func createEvent(_ event: Event, completion: @escaping (Bool, String?) -> Void) {
         do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(event)
+            let data = try firestoreEncoder().encode(event)
             let jsonObject = try JSONSerialization.jsonObject(with: data)
 
             guard let jsonDict = jsonObject as? [String: Any] else {
@@ -79,6 +136,16 @@ class FirebaseService {
         }
     }
     
+    func deleteEvent(eventId: String, completion: @escaping (Bool, String?) -> Void) {
+        db.collection("events").document(eventId).delete { error in
+            if let error = error {
+                completion(false, error.localizedDescription)
+            } else {
+                completion(true, nil)
+            }
+        }
+    }
+    
     func getEvent(_ eventId: String, completion: @escaping (Event?, String?) -> Void) {
         db.collection("events").document(eventId).getDocument { snapshot, error in
             if let error = error {
@@ -92,8 +159,8 @@ class FirebaseService {
             }
             
             do {
-                let jsonData = try JSONSerialization.data(withJSONObject: data)
-                let event = try JSONDecoder().decode(Event.self, from: jsonData)
+                let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(data))
+                let event = try self.firestoreDecoder().decode(Event.self, from: jsonData)
                 completion(event, nil)
             } catch {
                 completion(nil, error.localizedDescription)
@@ -111,8 +178,8 @@ class FirebaseService {
             var events: [Event] = []
             for document in snapshot?.documents ?? [] {
                 do {
-                    let jsonData = try JSONSerialization.data(withJSONObject: document.data())
-                    let event = try JSONDecoder().decode(Event.self, from: jsonData)
+                    let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(document.data()))
+                    let event = try self.firestoreDecoder().decode(Event.self, from: jsonData)
                     events.append(event)
                 } catch {
                     print("Error decoding event: \(error)")
@@ -133,8 +200,8 @@ class FirebaseService {
             var events: [Event] = []
             for document in snapshot?.documents ?? [] {
                 do {
-                    let jsonData = try JSONSerialization.data(withJSONObject: document.data())
-                    let event = try JSONDecoder().decode(Event.self, from: jsonData)
+                    let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(document.data()))
+                    let event = try self.firestoreDecoder().decode(Event.self, from: jsonData)
                     events.append(event)
                 } catch {
                     print("Error decoding event: \(error)")
@@ -148,37 +215,74 @@ class FirebaseService {
     // MARK: - Ticket Operations
     
     func registerEventForPeserta(pesertaId: String, eventId: String, completion: @escaping (Bool, String?) -> Void) {
-        let ticketId = UUID().uuidString
-        let ticket = Ticket(
-            id: ticketId,
-            eventId: eventId,
-            pesertaId: pesertaId,
-            status: .active,
-            encryptedData: generateEncryptedQRCode(ticketId: ticketId, eventId: eventId, pesertaId: pesertaId),
-            createdAt: Date()
-        )
+        let data: [String: Any] = [
+            "pesertaId": pesertaId,
+            "eventId": eventId
+        ]
         
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(ticket)
-            let jsonObject = try JSONSerialization.jsonObject(with: data)
-
-            guard let jsonDict = jsonObject as? [String: Any] else {
-                completion(false, "Failed to serialize ticket data")
+        functions.httpsCallable("registerEvent").call(data) { [weak self] result, error in
+            if let error = error {
+                print("Cloud Function registerEvent failed, falling back to local transaction: \(error.localizedDescription)")
+                
+                guard let self = self else { return }
+                let ticketId = UUID().uuidString
+                let ticketRef = self.db.collection("tickets").document(ticketId)
+                let eventRef = self.db.collection("events").document(eventId)
+                
+                self.db.runTransaction({ (transaction, errorPointer) -> Any? in
+                    let eventDoc: DocumentSnapshot
+                    do {
+                        eventDoc = try transaction.getDocument(eventRef)
+                    } catch let fetchError as NSError {
+                        errorPointer?.pointee = fetchError
+                        return nil
+                    }
+                    
+                    guard let quota = eventDoc.data()?["quota"] as? Int,
+                          let registeredCount = eventDoc.data()?["registered_count"] as? Int else {
+                        let err = NSError(domain: "AppError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Event data invalid"])
+                        errorPointer?.pointee = err
+                        return nil
+                    }
+                    
+                    if registeredCount >= quota {
+                        let err = NSError(domain: "AppError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Quota fully booked"])
+                        errorPointer?.pointee = err
+                        return nil
+                    }
+                    
+                    transaction.updateData(["registered_count": registeredCount + 1], forDocument: eventRef)
+                    
+                    let ticket = Ticket(
+                        id: ticketId,
+                        eventId: eventId,
+                        pesertaId: pesertaId,
+                        status: .active,
+                        encryptedData: self.generateEncryptedQRCode(ticketId: ticketId, eventId: eventId, pesertaId: pesertaId),
+                        createdAt: Date()
+                    )
+                    
+                    do {
+                        let encoder = JSONEncoder()
+                        let ticketData = try encoder.encode(ticket)
+                        let jsonDict = try JSONSerialization.jsonObject(with: ticketData) as! [String: Any]
+                        transaction.setData(jsonDict, forDocument: ticketRef)
+                    } catch let encodeError as NSError {
+                        errorPointer?.pointee = encodeError
+                        return nil
+                    }
+                    
+                    return nil
+                }) { (object, err) in
+                    if let err = err {
+                        completion(false, err.localizedDescription)
+                    } else {
+                        completion(true, nil)
+                    }
+                }
                 return
             }
-
-            db.collection("tickets").document(ticketId).setData(jsonDict) { error in
-                if let error = error {
-                    completion(false, error.localizedDescription)
-                } else {
-                    // Update event registered count
-                    self.updateEventRegisteredCount(eventId: eventId, increment: true)
-                    completion(true, nil)
-                }
-            }
-        } catch {
-            completion(false, error.localizedDescription)
+            completion(true, nil)
         }
     }
     
@@ -235,25 +339,38 @@ class FirebaseService {
     // MARK: - Feedback Operations
     
     func saveFeedback(_ feedback: Feedback, completion: @escaping (Bool, String?) -> Void) {
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(feedback)
-            let jsonObject = try JSONSerialization.jsonObject(with: data)
-
-            guard let jsonDict = jsonObject as? [String: Any] else {
-                completion(false, "Failed to serialize feedback data")
+        let data: [String: Any] = [
+            "id": feedback.id,
+            "eventId": feedback.eventId,
+            "pesertaId": feedback.pesertaId,
+            "rating": feedback.rating,
+            "comment": feedback.comment,
+            "type": feedback.type
+        ]
+        
+        functions.httpsCallable("submitFeedback").call(data) { [weak self] result, error in
+            if let error = error {
+                print("Cloud Function submitFeedback failed, falling back to local write: \(error.localizedDescription)")
+                
+                guard let self = self else { return }
+                do {
+                    let encoder = JSONEncoder()
+                    let feedbackData = try encoder.encode(feedback)
+                    let jsonDict = try JSONSerialization.jsonObject(with: feedbackData) as! [String: Any]
+                    
+                    self.db.collection("feedback").document(feedback.id).setData(jsonDict) { err in
+                        if let err = err {
+                            completion(false, err.localizedDescription)
+                        } else {
+                            completion(true, nil)
+                        }
+                    }
+                } catch {
+                    completion(false, error.localizedDescription)
+                }
                 return
             }
-
-            db.collection("feedback").document(feedback.id).setData(jsonDict) { error in
-                if let error = error {
-                    completion(false, error.localizedDescription)
-                } else {
-                    completion(true, nil)
-                }
-            }
-        } catch {
-            completion(false, error.localizedDescription)
+            completion(true, nil)
         }
     }
     
@@ -285,30 +402,53 @@ class FirebaseService {
     // MARK: - Vendor Operations
     
     func addVendor(_ vendor: Vendor, completion: @escaping (Bool, String?) -> Void) {
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(vendor)
-            let jsonObject = try JSONSerialization.jsonObject(with: data)
-
-            guard let jsonDict = jsonObject as? [String: Any] else {
-                completion(false, "Failed to serialize vendor data")
-                return
-            }
-
-            db.collection("vendors").document(vendor.id).setData(jsonDict) { error in
-                if let error = error {
+        let data: [String: Any] = [
+            "name": vendor.name,
+            "email": vendor.email,
+            "phone": vendor.phone ?? ""
+        ]
+        
+        functions.httpsCallable("createVendorUser").call(data) { [weak self] result, error in
+            if let error = error {
+                print("Cloud function failed, using client fallback batch write: \(error.localizedDescription)")
+                // LOCAL FALLBACK: Add directly to 'vendors' and 'users' collections
+                // For demo testing in Xcode simulator
+                guard let self = self else { return }
+                let batch = self.db.batch()
+                let userRef = self.db.collection("users").document(vendor.id)
+                let vendorRef = self.db.collection("vendors").document(vendor.id)
+                
+                let userObj = User(id: vendor.id, email: vendor.email, name: vendor.name, role: .vendor, createdAt: Date())
+                
+                do {
+                    let userEncoder = JSONEncoder()
+                    let userData = try userEncoder.encode(userObj)
+                    let userDict = try JSONSerialization.jsonObject(with: userData) as! [String: Any]
+                    let vendorEncoder = JSONEncoder()
+                    let vendorData = try vendorEncoder.encode(vendor)
+                    let vendorDict = try JSONSerialization.jsonObject(with: vendorData) as! [String: Any]
+                    
+                    batch.setData(userDict, forDocument: userRef)
+                    batch.setData(vendorDict, forDocument: vendorRef)
+                    
+                    batch.commit { error in
+                        if let error = error {
+                            completion(false, error.localizedDescription)
+                        } else {
+                            completion(true, nil)
+                        }
+                    }
+                } catch {
                     completion(false, error.localizedDescription)
-                } else {
-                    completion(true, nil)
                 }
+            } else {
+                completion(true, nil)
             }
-        } catch {
-            completion(false, error.localizedDescription)
         }
     }
     
     func getAllVendors(completion: @escaping ([Vendor]?, String?) -> Void) {
-        db.collection("vendors").getDocuments { snapshot, error in
+        db.collection("users").whereField("role", isEqualTo: "vendor").getDocuments { snapshot, error in
             if let error = error {
                 completion(nil, error.localizedDescription)
                 return
@@ -316,15 +456,22 @@ class FirebaseService {
             
             var vendors: [Vendor] = []
             for document in snapshot?.documents ?? [] {
-                do {
-                    let jsonData = try JSONSerialization.data(withJSONObject: document.data())
-                    let vendor = try JSONDecoder().decode(Vendor.self, from: jsonData)
+                let data = document.data()
+                if let id = data["id"] as? String,
+                   let name = data["name"] as? String,
+                   let email = data["email"] as? String {
+                    let phone = data["phone"] as? String ?? data["biodata"] as? String
+                    
+                    let vendor = Vendor(
+                        id: id,
+                        name: name,
+                        email: email,
+                        phone: phone,
+                        createdAt: Date()
+                    )
                     vendors.append(vendor)
-                } catch {
-                    print("Error decoding vendor: \(error)")
                 }
             }
-            
             completion(vendors, nil)
         }
     }
@@ -378,6 +525,28 @@ class FirebaseService {
     
     // MARK: - Invoice Operations
     
+    func createInvoice(_ invoice: Invoice, completion: @escaping (Bool, String?) -> Void) {
+        do {
+            let data = try firestoreEncoder().encode(invoice)
+            let jsonObject = try JSONSerialization.jsonObject(with: data)
+
+            guard let jsonDict = jsonObject as? [String: Any] else {
+                completion(false, "Failed to serialize invoice data")
+                return
+            }
+
+            db.collection("invoices").document(invoice.id).setData(jsonDict) { error in
+                if let error = error {
+                    completion(false, error.localizedDescription)
+                } else {
+                    completion(true, nil)
+                }
+            }
+        } catch {
+            completion(false, error.localizedDescription)
+        }
+    }
+    
     func getVendorInvoices(vendorId: String, completion: @escaping ([Invoice]?, String?) -> Void) {
         db.collection("invoices").whereField("vendor_id", isEqualTo: vendorId).getDocuments { snapshot, error in
             if let error = error {
@@ -388,8 +557,30 @@ class FirebaseService {
             var invoices: [Invoice] = []
             for document in snapshot?.documents ?? [] {
                 do {
-                    let jsonData = try JSONSerialization.data(withJSONObject: document.data())
-                    let invoice = try JSONDecoder().decode(Invoice.self, from: jsonData)
+                    let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(document.data()))
+                    let invoice = try self.firestoreDecoder().decode(Invoice.self, from: jsonData)
+                    invoices.append(invoice)
+                } catch {
+                    print("Error decoding invoice: \(error)")
+                }
+            }
+            
+            completion(invoices, nil)
+        }
+    }
+
+    func getEventInvoices(eventId: String, completion: @escaping ([Invoice]?, String?) -> Void) {
+        db.collection("invoices").whereField("event_id", isEqualTo: eventId).getDocuments { snapshot, error in
+            if let error = error {
+                completion(nil, error.localizedDescription)
+                return
+            }
+            
+            var invoices: [Invoice] = []
+            for document in snapshot?.documents ?? [] {
+                do {
+                    let jsonData = try JSONSerialization.data(withJSONObject: self.sanitizeFirestoreData(document.data()))
+                    let invoice = try self.firestoreDecoder().decode(Invoice.self, from: jsonData)
                     invoices.append(invoice)
                 } catch {
                     print("Error decoding invoice: \(error)")
@@ -400,34 +591,77 @@ class FirebaseService {
         }
     }
     
+    func updateInvoiceStatus(invoiceId: String, status: InvoiceStatus, completion: @escaping (Bool, String?) -> Void) {
+        var updateDict: [String: Any] = ["status": status.rawValue]
+        if status == .paid {
+            updateDict["paid_at"] = Date()
+        }
+        
+        db.collection("invoices").document(invoiceId).updateData(updateDict) { error in
+            if let error = error {
+                completion(false, error.localizedDescription)
+            } else {
+                completion(true, nil)
+            }
+        }
+    }
+
+    
     // MARK: - Attendance Operations
     
-    func recordAttendance(eventId: String, pesertaId: String, completion: @escaping (Bool, String?) -> Void) {
-        db.collection("tickets")
-            .whereField("event_id", isEqualTo: eventId)
-            .whereField("peserta_id", isEqualTo: pesertaId)
-            .getDocuments { [weak self] snapshot, error in
-                if let error = error {
-                    completion(false, error.localizedDescription)
-                    return
+    func recordAttendance(eventId: String, scannedCode: String, completion: @escaping (Bool, String?) -> Void) {
+        let data: [String: Any] = [
+            "eventId": eventId,
+            "scannedCode": scannedCode
+        ]
+        
+        functions.httpsCallable("recordAttendance").call(data) { [weak self] result, error in
+            if let error = error {
+                print("Cloud Function recordAttendance failed, falling back to local write: \(error.localizedDescription)")
+                
+                guard let self = self else { return }
+                
+                // Decode from Base64 if needed
+                var decodedCode = scannedCode
+                if let data = Data(base64Encoded: scannedCode), let decodedString = String(data: data, encoding: .utf8), decodedString.contains("|") {
+                    decodedCode = decodedString
                 }
                 
-                guard let document = snapshot?.documents.first else {
-                    completion(false, "Ticket not found")
-                    return
+                let parts = decodedCode.split(separator: "|")
+                let ticketId: String
+                if parts.count >= 1 {
+                    ticketId = String(parts[0])
+                } else {
+                    ticketId = decodedCode
                 }
                 
-                let ticketId = document.documentID
-                self?.db.collection("tickets").document(ticketId).updateData([
+                self.db.collection("tickets").document(ticketId).updateData([
                     "status": "used",
                     "used_at": Date()
-                ]) { error in
-                    if let error = error {
-                        completion(false, error.localizedDescription)
+                ]) { err in
+                    if let err = err {
+                        completion(false, err.localizedDescription)
                     } else {
                         completion(true, nil)
                     }
                 }
+                return
+            }
+            completion(true, nil)
+        }
+    }
+    
+    func listenToLiveAttendance(eventId: String, completion: @escaping (Int) -> Void) -> ListenerRegistration {
+        return db.collection("tickets")
+            .whereField("event_id", isEqualTo: eventId)
+            .whereField("status", isEqualTo: "used")
+            .addSnapshotListener { snapshot, error in
+                if let error = error {
+                    print("Error listening to live attendance: \(error.localizedDescription)")
+                    return
+                }
+                let count = snapshot?.documents.count ?? 0
+                completion(count)
             }
     }
     
