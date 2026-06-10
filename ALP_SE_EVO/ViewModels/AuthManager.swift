@@ -83,36 +83,14 @@ class AuthManager: NSObject, ObservableObject {
             )
             
             self?.firebaseService.saveUser(newUser) { success, error in
-                if success && role == .vendor {
-                    let vendorObj = Vendor(
-                        id: uid,
-                        name: name,
-                        email: email,
-                        phone: nil,
-                        createdAt: Date()
-                    )
-                    self?.firebaseService.addVendor(vendorObj) { vendorSuccess, vendorError in
-                        DispatchQueue.main.async {
-                            self?.isLoading = false
-                            if vendorSuccess {
-                                self?.currentUser = newUser
-                                self?.isLoggedIn = true
-                                completion(true, nil)
-                            } else {
-                                completion(false, vendorError ?? "Failed to save vendor details")
-                            }
-                        }
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        self?.isLoading = false
-                        if success {
-                            self?.currentUser = newUser
-                            self?.isLoggedIn = true
-                            completion(true, nil)
-                        } else {
-                            completion(false, error ?? "Failed to save user data")
-                        }
+                DispatchQueue.main.async {
+                    self?.isLoading = false
+                    if success {
+                        self?.currentUser = newUser
+                        self?.isLoggedIn = true
+                        completion(true, nil)
+                    } else {
+                        completion(false, error ?? "Failed to save user data")
                     }
                 }
             }
@@ -152,7 +130,6 @@ class AuthManager: NSObject, ObservableObject {
     // MARK: - Demo Seeding
     func seedDemoData(completion: @escaping (Bool, String) -> Void) {
         isLoading = true
-        let group = DispatchGroup()
         
         let usersToCreate = [
             (SampleData.samplePeserta, "password"),
@@ -163,103 +140,139 @@ class AuthManager: NSObject, ObservableObject {
         
         var successCount = 0
         var skipCount = 0
+        var panitiaUid = SampleData.samplePanitia.id
+        var pesertaUid = SampleData.samplePeserta.id
+        var vendorUid = SampleData.sampleVendor.id
         
-        for (user, password) in usersToCreate {
-            group.enter()
+        var errorMessages: [String] = []
+        
+        func seedUser(index: Int, onComplete: @escaping () -> Void) {
+            if index >= usersToCreate.count {
+                onComplete()
+                return
+            }
+            
+            let (user, password) = usersToCreate[index]
             Auth.auth().createUser(withEmail: user.email, password: password) { [weak self] authResult, error in
                 if let error = error {
                     let nsError = error as NSError
-                    // 17007 is the error code for FIRAuthErrorCodeEmailAlreadyInUse
                     if nsError.code == AuthErrorCode.emailAlreadyInUse.rawValue {
                         skipCount += 1
-                        // Still save to Firestore just in case
-                        self?.firebaseService.saveUser(user) { _, _ in
-                            group.leave()
+                        Auth.auth().signIn(withEmail: user.email, password: password) { signInResult, signInError in
+                            let realUid = signInResult?.user.uid ?? user.id
+                            var updatedUser = user
+                            updatedUser.id = realUid
+                            
+                            if updatedUser.role == .panitia { panitiaUid = realUid }
+                            else if updatedUser.role == .peserta { pesertaUid = realUid }
+                            else if updatedUser.role == .vendor { vendorUid = realUid }
+                            
+                            self?.firebaseService.saveUser(updatedUser) { success, err in
+                                if !success, let err = err { errorMessages.append("Failed saving user \(user.email): \(err)") }
+                                seedUser(index: index + 1, onComplete: onComplete)
+                            }
                         }
                     } else {
-                        print("Error creating user \(user.email): \(error.localizedDescription)")
-                        group.leave()
+                        errorMessages.append("Error creating user \(user.email): \(error.localizedDescription)")
+                        seedUser(index: index + 1, onComplete: onComplete)
                     }
                 } else if let authResult = authResult {
-                    // Update user ID to match Auth UID to prevent inconsistency
                     var newUser = user
                     newUser.id = authResult.user.uid
                     
-                    self?.firebaseService.saveUser(newUser) { _, _ in
-                        successCount += 1
-                        if newUser.role == .vendor {
-                            let vendorObj = Vendor(
-                                id: newUser.id,
-                                name: newUser.name,
-                                email: newUser.email,
-                                phone: "+62812345678",
-                                createdAt: Date()
-                            )
-                            self?.firebaseService.addVendor(vendorObj) { _, _ in
-                                // Seed catalog items for the new dynamic vendor UID
-                                for var item in SampleData.sampleCatalogItems {
-                                    item.vendorId = newUser.id
-                                    group.enter()
-                                    self?.firebaseService.addCatalogItem(item) { _, _ in
-                                        group.leave()
-                                    }
-                                }
-                                // Seed invoices for the new dynamic vendor UID
-                                for var inv in SampleData.sampleInvoices {
-                                    inv.vendorId = newUser.id
-                                    group.enter()
-                                    self?.firebaseService.createInvoice(inv) { _, _ in
-                                        group.leave()
-                                    }
-                                }
-                                group.leave()
-                            }
-                        } else {
-                            group.leave()
-                        }
+                    if newUser.role == .panitia { panitiaUid = newUser.id }
+                    else if newUser.role == .peserta { pesertaUid = newUser.id }
+                    else if newUser.role == .vendor { vendorUid = newUser.id }
+                    
+                    self?.firebaseService.saveUser(newUser) { success, err in
+                        if success { successCount += 1 }
+                        else if let err = err { errorMessages.append("Failed saving new user \(newUser.email): \(err)") }
+                        seedUser(index: index + 1, onComplete: onComplete)
                     }
                 } else {
-                    group.leave()
+                    seedUser(index: index + 1, onComplete: onComplete)
                 }
             }
         }
         
-        // Seed some sample events
-        for event in SampleData.sampleEvents {
-            group.enter()
-            firebaseService.createEvent(event) { _, _ in
-                group.leave()
+        seedUser(index: 0) {
+            let dataGroup = DispatchGroup()
+            
+            // Seed events (linked to panitia)
+            for var event in SampleData.sampleEvents {
+                dataGroup.enter()
+                event.createdBy = panitiaUid
+                self.firebaseService.createEvent(event) { success, err in
+                    if !success, let err = err { errorMessages.append("Event error: \(err)") }
+                    dataGroup.leave()
+                }
+            }
+            
+            // Seed vendors
+            for vendor in SampleData.sampleVendors {
+                dataGroup.enter()
+                self.firebaseService.saveUser(vendor) { success, err in
+                    if !success, let err = err { errorMessages.append("Vendor error: \(err)") }
+                    dataGroup.leave()
+                }
+            }
+            
+            // Seed catalog items
+            for catalog in SampleData.sampleCatalogItems {
+                dataGroup.enter()
+                self.firebaseService.addCatalogItem(catalog) { success, err in
+                    if !success, let err = err { errorMessages.append("Catalog error: \(err)") }
+                    dataGroup.leave()
+                }
+            }
+            
+            // Seed tickets (linked to peserta)
+            for ticket in SampleData.sampleTickets {
+                dataGroup.enter()
+                let ticketData = Ticket(
+                    id: ticket.id,
+                    eventId: ticket.eventId,
+                    eventTitle: ticket.eventTitle,
+                    pesertaId: pesertaUid,
+                    status: ticket.status,
+                    encryptedData: ticket.encryptedData,
+                    createdAt: ticket.createdAt
+                )
+                self.firebaseService.seedTicket(ticketData) { success, err in
+                    if !success, let err = err { errorMessages.append("Ticket error: \(err)") }
+                    dataGroup.leave()
+                }
+            }
+            
+            // Seed event-vendor items (link sample vendors to sample events)
+            for item in SampleData.sampleEventVendorItems {
+                dataGroup.enter()
+                self.firebaseService.saveEventVendorItem(item) { success, err in
+                    if !success, let err = err { errorMessages.append("EventVendorItem error: \(err)") }
+                    dataGroup.leave()
+                }
+            }
+            
+            dataGroup.notify(queue: .main) {
+                self.isLoading = false
+                let errorsStr = errorMessages.isEmpty ? "" : "\nErrors:\n" + Array(Set(errorMessages)).joined(separator: "\n")
+                let message = "Data seeded! \(successCount) new users, \(skipCount) existing. \(SampleData.sampleEvents.count) events, \(SampleData.sampleVendors.count) vendors, \(SampleData.sampleCatalogItems.count) catalog items, \(SampleData.sampleTickets.count) tickets.\(errorsStr)"
+                completion(true, message)
             }
         }
-        
-        // Seed some sample vendors
-        for vendor in SampleData.sampleVendors {
-            group.enter()
-            firebaseService.addVendor(vendor) { _, _ in
-                group.leave()
+    }
+    
+    func resetDatabase(completion: @escaping (Bool, String) -> Void) {
+        isLoading = true
+        firebaseService.resetDatabase { [weak self] success, errorMsg in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                if success {
+                    completion(true, "Database reset successfully.")
+                } else {
+                    completion(false, errorMsg ?? "Failed to reset database.")
+                }
             }
-        }
-        
-        // Seed sample catalog items (default vendor123)
-        for item in SampleData.sampleCatalogItems {
-            group.enter()
-            firebaseService.addCatalogItem(item) { _, _ in
-                group.leave()
-            }
-        }
-        
-        // Seed sample invoices (default vendor123)
-        for invoice in SampleData.sampleInvoices {
-            group.enter()
-            firebaseService.createInvoice(invoice) { _, _ in
-                group.leave()
-            }
-        }
-        
-        group.notify(queue: .main) {
-            self.isLoading = false
-            let message = "Data seeded. Created \(successCount) new users. (\(skipCount) already existed). Seeded \(SampleData.sampleEvents.count) events, \(SampleData.sampleVendors.count) vendors, catalogs, and invoices."
-            completion(true, message)
         }
     }
 }

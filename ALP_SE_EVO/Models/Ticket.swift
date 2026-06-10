@@ -9,6 +9,7 @@ enum TicketStatus: String, Codable {
 struct Ticket: Identifiable, Codable {
     let id: String
     let eventId: String
+    var eventTitle: String
     let pesertaId: String
     var status: TicketStatus
     var encryptedData: String // QR Code encrypted data
@@ -18,6 +19,7 @@ struct Ticket: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id
         case eventId = "event_id"
+        case eventTitle = "event_title"
         case pesertaId = "peserta_id"
         case status
         case encryptedData = "encrypted_data"
